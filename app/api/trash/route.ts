@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET() {
   try {
     // 从数据库查询所有已删除的笔记
-    const deletedNotes = await prisma.note.findMany({
+    const deletedNotes: any[] = await prisma.note.findMany({
       where: { isDeleted: true },
       orderBy: { updatedAt: "desc" },
       include: {
