@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/prisma";
 
 const createNotebookSchema = z.object({
   title: z.string().min(1).max(100),
@@ -9,89 +10,27 @@ const createNotebookSchema = z.object({
   theme: z.string().default("minimal"),
 });
 
-// 使用全局对象存储模拟数据，以便与[id]端点共享
-if (!global.mockNotebooks) {
-  global.mockNotebooks = [
-    {
-      id: "1",
-      title: "个人日记",
-      description: "记录生活中的点点滴滴",
-      coverType: "color",
-      coverValue: "#4f46e5",
-      theme: "minimal",
-      sortOrder: 1,
-      userId: "1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isArchived: false,
-      _count: {
-        notes: 3
-      }
-    },
-    {
-      id: "2",
-      title: "工作笔记",
-      description: "工作相关的笔记和计划",
-      coverType: "color",
-      coverValue: "#10b981",
-      theme: "minimal",
-      sortOrder: 2,
-      userId: "1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isArchived: false,
-      _count: {
-        notes: 5
-      }
-    },
-    {
-      id: "3",
-      title: "学习资料",
-      description: "各种学习资源和笔记",
-      coverType: "color",
-      coverValue: "#f59e0b",
-      theme: "minimal",
-      sortOrder: 3,
-      userId: "1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isArchived: false,
-      _count: {
-        notes: 2
-      }
-    }
-  ];
-  global.nextId = 4;
-}
-
-// 模拟数据
-let mockNotebooks = global.mockNotebooks;
-let nextId = global.nextId;
-
+// 创建笔记本
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const validatedData = createNotebookSchema.parse(body);
 
-    const newNotebook = {
-      id: nextId.toString(),
-      title: validatedData.title,
-      description: validatedData.description,
-      coverType: validatedData.coverType,
-      coverValue: validatedData.coverValue,
-      theme: validatedData.theme,
-      sortOrder: mockNotebooks.length + 1,
-      userId: "1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isArchived: false,
-      _count: {
-        notes: 0
-      }
-    };
-
-    mockNotebooks.push(newNotebook);
-    nextId++;
+    const newNotebook = await prisma.notebook.create({
+      data: {
+        title: validatedData.title,
+        description: validatedData.description,
+        coverType: validatedData.coverType,
+        coverValue: validatedData.coverValue,
+        theme: validatedData.theme,
+        sortOrder: 0,
+        userId: "1",
+        isArchived: false,
+      },
+      include: {
+        _count: { select: { notes: true } },
+      },
+    });
 
     return NextResponse.json(newNotebook, { status: 201 });
   } catch (error) {
@@ -102,21 +41,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.error("创建小册子失败:", error);
+    console.error("创建笔记本失败:", error);
     return NextResponse.json({ error: "创建失败" }, { status: 500 });
   }
 }
 
+// 获取所有笔记本
 export async function GET(req: NextRequest) {
   try {
-    // 返回模拟数据
-    return NextResponse.json(mockNotebooks);
+    const notebooks = await prisma.notebook.findMany({
+      where: { isArchived: false },
+      orderBy: { sortOrder: "asc" },
+      include: {
+        _count: { select: { notes: true } },
+      },
+    });
+
+    return NextResponse.json(notebooks);
   } catch (error) {
-    console.error("获取小册子失败:", error);
+    console.error("获取笔记本失败:", error);
     return NextResponse.json({ error: "获取失败" }, { status: 500 });
   }
 }
 
+// 更新笔记本
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
@@ -126,24 +74,25 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "缺少ID" }, { status: 400 });
     }
 
-    const index = mockNotebooks.findIndex(note => note.id === id);
-    if (index === -1) {
-      return NextResponse.json({ error: "未找到" }, { status: 404 });
-    }
+    const updatedNotebook = await prisma.notebook.update({
+      where: { id },
+      data: {
+        ...updateData,
+        updatedAt: new Date(),
+      },
+      include: {
+        _count: { select: { notes: true } },
+      },
+    });
 
-    mockNotebooks[index] = {
-      ...mockNotebooks[index],
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    };
-
-    return NextResponse.json(mockNotebooks[index]);
+    return NextResponse.json(updatedNotebook);
   } catch (error) {
-    console.error("更新小册子失败:", error);
+    console.error("更新笔记本失败:", error);
     return NextResponse.json({ error: "更新失败" }, { status: 500 });
   }
 }
 
+// 删除笔记本
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -153,16 +102,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "缺少ID" }, { status: 400 });
     }
 
-    const index = mockNotebooks.findIndex(note => note.id === id);
-    if (index === -1) {
-      return NextResponse.json({ error: "未找到" }, { status: 404 });
-    }
-
-    mockNotebooks.splice(index, 1);
+    await prisma.notebook.delete({
+      where: { id },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("删除小册子失败:", error);
+    console.error("删除笔记本失败:", error);
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
   }
 }
